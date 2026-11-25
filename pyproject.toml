@@ -1,0 +1,5 @@
+[project]
+name = "lighten012-memory"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = ["mcp>=1.26,<2"]
