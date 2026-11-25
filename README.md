@@ -4,9 +4,13 @@
 
 ## 你可以先看这些
 
-- `rules/习惯与规则.md`：由你手动维护。是行为指令的草稿，与记忆库分开。预览不会自动加载它，也不会通过工具改它。
+- [Project-Habit.md](rules/Project-Habit.md)：做项目时的默认习惯。
+- [Inner-Project-Rule.md](rules/Inner-Project-Rule.md)：内网项目要遵循的规则。
+- [Tencent-Project-Rule.md](rules/Tencent-Project-Rule.md)：Tencent 公司项目要遵循的规则。
 - `skills/shared-memory/SKILL.md`：告诉 AI 何时查记忆、何时写记忆。现在只是项目内预览，未安装。
 - `tools/memory.py`：三个可运行的工具（新增、查询、更新）。预览用 Python 标准库，便于在这台 Mac 零安装试用；尚未封装成 Go 服务或 MCP。
+
+三份文件都是空模板，由你手动维护，与记忆库分开。预览不会自动加载它们，记忆工具也不会修改它们。项目同时适用两份规则时，同时遵守；有冲突先确认。真实内网或公司要求请保留在相应的授权环境，不要填入公开仓库。
 
 ## 试一下
 
