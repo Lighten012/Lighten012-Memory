@@ -2,7 +2,7 @@
 
 给 Codex 一份跨会话的个人记忆。你说“帮我记住，弯道回放要看刹车点”，Codex 会保存这条记录。下次问“之前想分析什么时候踩踏板？”，它可以用语义搜索找回原文。说“忘掉刚才那条赛车笔记”可以删除它。
 
-[lighten012-memory skill](skills/lighten012-memory/SKILL.md) 告诉 AI 什么时候记、查、改、删。独立的 Python MCP 服务负责读写 SQLite。所有记录都可被这四个工具访问。Ollama 或兼容 API 负责计算向量，模型可以和服务在同一台机器，也可以在云端。
+[lighten012-memory skill](skills/lighten012-memory/SKILL.md) 告诉 AI 什么时候记、查、改、删。独立的 Python MCP 服务负责读写 SQLite。所有记录都可被这四个工具访问。向量可以交给 Ollama、OpenAI 官方 API 或其他兼容接口计算。
 
 ```text
 Codex ──MCP──► 记忆服务 ──► SQLite（正文、属性和向量）
@@ -11,11 +11,22 @@ Codex ──MCP──► 记忆服务 ──► SQLite（正文、属性和向�
 
 ## 让 AI 按这份 README 安装
 
-可直接给有终端权限的 AI 这段话，按实际部署替换方括号部分。
+把仓库链接和这句话发给有终端权限的 AI 即可。
 
-> 请按 Lighten012-Memory 的 README 安装到当前用户的 Codex。我的模型是［本机 Ollama / 远端 Ollama 的地址和模型名 / OpenAI 兼容 API 的基址和模型名］。请检查已有环境，补齐缺项，启动服务，安装 skill 并注册工具。用一条专门的测试记忆验证跨会话读写，再按它的 ID 删除。完成时告诉我数据库位置、实际使用的模型以及各项验收结果。
+> 帮我按 README 安装 Lighten012-Memory。先问我需要选择的地方，再检查环境、补齐依赖，最后用一条临时记忆验证跨会话读写并删掉它。
 
-下列命令适用于 macOS 和 Linux 的终端。默认让记忆服务与 Codex 同机，通过 `127.0.0.1:8765` 连接。只把模型放到云端可以直接用这个默认布局。
+### 安装前，先问用户
+
+用户只说“帮我安装”时，先问下面两个问题，等用户选好再安装依赖、下载模型或调用 API。用户已经说清的部分直接沿用。尤其是“本地部署”可能只指数据库放在本机，仍需确认用谁的向量模型。
+
+1. **记忆存在哪里？** “把记忆服务和数据库放在运行 Codex 的这台机器上，还是放在你的另一台服务器？如果已经有运行中的 Lighten012-Memory，也可以直接接入。”
+2. **谁来计算向量？** “你想在记忆服务所在机器用 Ollama 跑模型，用另一台机器的 Ollama，直接用 OpenAI 的 embedding API，还是用其他兼容 API？”本机 Ollama 会占用本机资源。选择远端服务时，保存的正文和搜索词会发到该服务；使用 OpenAI 官方 API 会产生 API 用量。
+
+只追问所选方案缺的信息。部署到另一台机器时，确认目标主机和可用的连接方式。选远端 Ollama 或其他兼容 API 时，确认接口基址和模型名。选 OpenAI 官方 API 时，服务地址已知，可建议 `text-embedding-3-small`，请用户在记忆服务机器上配置自己的 API 密钥，无需在聊天中粘贴。选本机 Ollama 时，先列出已安装的模型，有合适的就复用，需要下载时再确认模型名。若用户已有记忆服务，只需确认客户端可访问的 MCP 地址，直接完成第 1 步的客户端准备和第 4、5 步。
+
+例如用户回答“记忆存在这台 Mac，向量直接用 OpenAI”，就应在 Mac 上部署 Python 服务和 SQLite，配置 OpenAI 接口，跳过整个 Ollama 安装步骤。
+
+以下命令适用于 macOS 和 Linux。同一台机器上的命令可在同一个终端依次执行；切换终端后，按文中的赋值重新设置 `cfg` 和 `mcp_url`。
 
 ### 1. 准备程序和仓库
 
@@ -30,18 +41,21 @@ uv sync --locked
 
 uv 按锁文件创建 `.venv`，需要 Python 3.11 或更高版本；若没有合适的解释器，可先执行 `uv python install 3.12`。安装的 skill 链接指向这份仓库，后续在此更新。
 
-### 2. 选择 embedding 接口
+### 2. 配置用户选好的 embedding 接口
 
 **本机 Ollama。** 安装并启动 Ollama。macOS 可用 `brew install ollama` 和 `brew services start ollama`；已有 Ollama App 或服务时，直接复用。Linux 可运行 `curl -fsSL https://ollama.com/install.sh | sh` 安装 Ollama，使用 systemd 的机器可通过 `sudo systemctl start ollama` 启动服务。检查模型，缺少时再下载。[Ollama Linux 安装说明](https://docs.ollama.com/linux)
 
 ```sh
 curl -fsS http://127.0.0.1:11434/api/version
-ollama show qwen3-embedding:8b-q8_0 >/dev/null || ollama pull qwen3-embedding:8b-q8_0
+ollama list
+# 把下面的名字换成与用户选定的模型
+model='qwen3-embedding:8b-q8_0'
+ollama show "$model" >/dev/null || ollama pull "$model"
 ```
 
-**远端 Ollama 或兼容 API。** 确认记忆服务所在机器可以访问对应地址。只用远端模型时，本机只需 Git、uv 和 Codex。记忆服务会把待索引记录的正文和用于查找记忆的查询文本发往所选地址。请使用允许接收这些内容的服务。
+**远端 Ollama、OpenAI 官方 API 或其他兼容 API。** 跳过上面的安装和下载命令，直接在记忆服务所在机器上配置相应接口。
 
-三种方案使用同一个配置文件。首次安装先创建，之后编辑原文件就能保留既有设置。
+以上方案使用同一个配置文件。首次安装先创建，之后编辑原文件就能保留既有设置。
 
 ```sh
 cfg_dir="${XDG_CONFIG_HOME:-$HOME/.config}/lighten012-memory"
@@ -50,14 +64,14 @@ cfg="$cfg_dir/service.env"
 if [ ! -e "$cfg" ]; then (umask 077 && cp service.env.example "$cfg"); fi
 ```
 
-| 设置 | 本机 Ollama | 远端 Ollama | OpenAI 兼容 API |
-|---|---|---|---|
-| `EMBEDDING_PROVIDER` | `ollama` | `ollama` | `openai` |
-| `EMBEDDING_BASE_URL` | `http://127.0.0.1:11434` | 你的 Ollama 实例基址 | 供应方给出的 API 基址，通常以 `/v1` 结尾 |
-| `EMBEDDING_MODEL` | `qwen3-embedding:8b-q8_0` | 该实例中实际安装的模型名 | 供应方的 embedding 模型 ID |
-| `EMBEDDING_API_KEY` | 留空 | 网关需要 Bearer 凭据时设置 | 供应方要求时设置 |
+| 选择 | `EMBEDDING_PROVIDER` | `EMBEDDING_BASE_URL` | `EMBEDDING_MODEL` | `EMBEDDING_API_KEY` |
+|---|---|---|---|---|
+| 本机 Ollama | `ollama` | `http://127.0.0.1:11434` | 已选的模型名，例如 `qwen3-embedding:8b-q8_0` | 留空 |
+| 远端 Ollama | `ollama` | 用户的 Ollama 实例基址 | 该实例已安装的模型名 | 网关需要时设置 |
+| OpenAI 官方 API | `openai` | `https://api.openai.com/v1` | 例如 `text-embedding-3-small` | 用户的 OpenAI API 密钥 |
+| 其他兼容 API | `openai` | 供应方给出的 API 基址，通常以 `/v1` 结尾 | 供应方的 embedding 模型 ID | 供应方要求时设置 |
 
-把上表对应值写入 `$cfg`，密钥保留在本机配置或进程环境里。Ollama 基址后由服务追加 `/api/embed`，OpenAI 兼容基址后追加 `/embeddings`。默认 Ollama 模型请求 768 维；其他情况读取服务实际返回的维度。[Ollama embedding API](https://docs.ollama.com/api/embed) · [OpenAI 兼容接口](https://docs.ollama.com/api/openai-compatibility)
+把所选行的值写入 `$cfg`，密钥保留在服务机的配置或进程环境里。Ollama 基址后由服务追加 `/api/embed`，OpenAI 官方和兼容基址后追加 `/embeddings`。默认 Ollama 模型请求 768 维；其他情况读取服务实际返回的维度。[Ollama embedding API](https://docs.ollama.com/api/embed) · [OpenAI embeddings API](https://developers.openai.com/api/reference/resources/embeddings/methods/create)
 
 在仓库根目录先发送一句测试文本验证，输出一个正整数才表示模型可用。这一步不会写入记忆库。
 
@@ -65,36 +79,60 @@ if [ ! -e "$cfg" ]; then (umask 077 && cp service.env.example "$cfg"); fi
 uv run --locked --env-file "$cfg" python -c 'import sys; sys.path.insert(0, "tools"); import memory; print(len(memory.embed("部署测试")))'
 ```
 
-### 3. 启动服务、安装 skill、注册 MCP
+### 3. 在保存数据库的机器上启动记忆服务
+
+以下命令从仓库根目录执行。先检查所选端口。若输出 `lighten012-memory` 及四个工具名，说明服务已就绪，可以跳到第 4 步。
 
 ```sh
-./scripts/install.sh
+mcp_url="http://127.0.0.1:${LIGHTEN012_PORT:-8765}/mcp"
+uv run --locked python tools/check.py "$mcp_url"
+```
+
+首次安装时，检查通常会提示连接失败。确认端口空闲后运行下面的命令。若端口已有其他服务，可先 `export LIGHTEN012_PORT=18765`，再按上一步重新设置并检查 `mcp_url`。
+
+```sh
+cfg="${XDG_CONFIG_HOME:-$HOME/.config}/lighten012-memory/service.env"
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/lighten012-memory"
+umask 077
+mkdir -p "$state_dir"
+nohup uv run --locked --env-file "$cfg" python tools/server.py \
+  </dev/null >>"$state_dir/service.log" 2>&1 &
+```
+
+启动后再次运行 `uv run --locked python tools/check.py "$mcp_url"`，直到能列出四个工具。若进程退出或几秒后仍无法连接，查看 `tail -n 30 "$state_dir/service.log"`。机器重启后可重复本步骤。修改 `service.env` 后需重启服务才能生效，可通过 `lsof -nP -iTCP:8765 -sTCP:LISTEN` 找到监听进程（端口按实际值替换），核对进程后再停止。
+
+### 4. 在使用 Codex 的机器上安装 skill、注册工具
+
+**先确定 Codex 连接的地址。** 同机部署时沿用第 3 步的 `mcp_url`。如果只有模型在云端，地址也照旧。只有记忆服务在另一台机器时，才需要从客户端建立 SSH 转发，例如 `ssh -N -L 18765:127.0.0.1:8765 user@your-memory-host`。保持隧道运行，在客户端另一终端设置 `mcp_url=http://127.0.0.1:18765/mcp`。服务机只需仓库、uv 和可达的模型；客户端准备仓库、uv 和 Codex 即可。
+
+**安装 skill。** 在客户端的仓库根目录执行以下命令。默认安装到当前用户的 Codex，之后可以从任意项目使用。[Codex skill 位置](https://developers.openai.com/codex/skills/)
+
+```sh
+skills_dir="${LIGHTEN012_SKILLS_DIR:-$HOME/.agents/skills}"
+skill_src="$(pwd -P)/skills/lighten012-memory"
+skill_dest="$skills_dir/lighten012-memory"
+mkdir -p "$skills_dir"
+if [ ! -e "$skill_dest" ] && [ ! -L "$skill_dest" ]; then ln -s "$skill_src" "$skill_dest"; fi
+test "$skill_dest" -ef "$skill_src"
+```
+
+最后一行成功表示已链接到这份仓库。若失败，用 `ls -ld "$skill_dest"` 查看同名目标，核对用户想使用哪一份。
+
+**注册 MCP。** 先在客户端验证连通性，再查看 Codex 是否已有同名配置。[Codex MCP 配置](https://developers.openai.com/codex/mcp/)
+
+```sh
+uv run --locked python tools/check.py "$mcp_url"
 codex mcp get lighten012-memory --json
 ```
 
-脚本按锁文件准备环境，在后台启动或复用回环地址上的服务，实际握手并核对四个工具。随后把 skill 链接到 `~/.agents/skills/lighten012-memory`，并执行下列注册。相同配置重复安装会复用现有服务、数据库和注册项。若已有同名 skill 指向其他位置或同名 MCP 地址不同，脚本会给出冲突位置或原因。[Codex skill 位置](https://developers.openai.com/codex/skills/) · [Codex MCP 配置](https://developers.openai.com/codex/mcp/)
+只有查询提示未注册时，才执行下面的 `add`。已有配置的 `transport.url` 应等于 `$mcp_url`，且 `enabled` 为 `true`；两项都符合即可复用。同名配置不同则先核对目标服务。注册一次后，Codex 会从该服务发现全部四个工具。
 
 ```sh
-# 安装脚本会执行；手工注册时也可以独立使用。
-codex mcp add lighten012-memory --url http://127.0.0.1:8765/mcp
+codex mcp add lighten012-memory --url "$mcp_url"
+codex mcp get lighten012-memory --json
 ```
 
-要换监听端口，可运行 `LIGHTEN012_PORT=18765 ./scripts/install.sh`。直接执行脚本适合个人机器，重启机器后再运行一次。修改 `service.env` 后要重启记忆服务，正在运行的进程不会重新读取文件。日志默认在 `~/.local/state/lighten012-memory/service.log`，可用 `lsof -nP -iTCP:8765 -sTCP:LISTEN` 查看监听进程，核对是本项目的 Python 服务后再用 `kill <PID>` 停止它。
-
-**如果记忆服务也要放在另一台机器**，在服务机完成第 1、2 步中的 uv、仓库和模型配置，运行下面的服务命令。该机器只需要能访问 SQLite 和所选模型。可交给已有的进程管理器常驻。回环监听让库内所有记录只通过本机或受信任的隧道访问。
-
-```sh
-# 服务机，保持进程运行
-uv run --locked --env-file "$cfg" python tools/server.py
-
-# Codex 客户端，先建立 SSH 转发，保持此连接
-ssh -N -L 18765:127.0.0.1:8765 user@your-memory-host
-
-# 客户端的另一终端，在仓库中安装 skill 并注册转发地址
-./scripts/install.sh --client-only http://127.0.0.1:18765/mcp
-```
-
-### 4. 验证 Codex 真的能用
+### 5. 验证 Codex 真的能用
 
 在仓库以外的目录打开新 Codex 会话。可用 `$lighten012-memory` 显式指定 skill，也可以直接用自然语言。若列表仍是旧的，重启 Codex。下面的流程只涉及刚创建的测试记录。
 
@@ -118,4 +156,9 @@ SQLite 默认位置是 `~/.local/share/lighten012-memory/memory.sqlite3`，设�
 
 需要排查时，可在仓库根目录运行 `uv run --locked python tools/check.py http://127.0.0.1:8765/mcp` 检查 MCP 握手和工具清单。CLI 与 MCP 共用同一套逻辑，例如 `uv run --locked --env-file "$cfg" python tools/memory.py search '刹车'`。运行 `uv run --locked python -m unittest discover -s tests -v` 会使用临时数据库做回归测试。
 
-[项目习惯](rules/Project-Habit.md)、[内网项目规则](rules/Inner-Project-Rule.md) 和 [Tencent 项目规则](rules/Tencent-Project-Rule.md) 是由你手工维护的空模板，与记忆库独立。
+## 习惯与规则
+
+这三个 Markdown 文件预留给用户填写，初始内容为空。安装环境时保留其现有内容。
+
+- `habits/` 放项目习惯，例如 [Project-Habit.md](habits/Project-Habit.md)。
+- `rules/` 放特定环境的规则，分别是 [内网项目规则](rules/Inner-Project-Rule.md) 和 [Tencent 项目规则](rules/Tencent-Project-Rule.md)。
